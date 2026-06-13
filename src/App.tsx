@@ -44,8 +44,10 @@ import {
 } from './lib/video';
 import { buildPetZip, downloadBlob } from './lib/package';
 
-const FRAME_SIZE = 200;
-const RENDER_SIZE = 128;
+const DEFAULT_FRAME_SIZE = 200;
+const DEFAULT_RENDER_SIZE = 128;
+const FRAME_SIZE_OPTIONS = [128, 160, 200, 256, 320, 384, 512];
+const RENDER_SIZE_OPTIONS = [96, 128, 160, 192, 256, 320, 384];
 const MAX_FRAMES_PER_STATE = 36;
 const PREVIEW_FRAMES_PER_STATE = 4;
 
@@ -141,6 +143,8 @@ export function App() {
   const [tolerance, setTolerance] = useState(38);
   const [feather, setFeather] = useState(18);
   const [edgeCleanup, setEdgeCleanup] = useState(28);
+  const [frameSize, setFrameSize] = useState(DEFAULT_FRAME_SIZE);
+  const [renderMaxSize, setRenderMaxSize] = useState(DEFAULT_RENDER_SIZE);
   const [zoom, setZoom] = useState(300);
   const [generated, setGenerated] = useState<GeneratedFrames>(() => createEmptyFrameRecord());
   const [previewFrames, setPreviewFrames] = useState<GeneratedFrames>(() => createEmptyFrameRecord());
@@ -163,11 +167,11 @@ export function App() {
   const manifest = useMemo(() => buildCloakManifest({
     name: projectName,
     description,
-    frameWidth: FRAME_SIZE,
-    frameHeight: FRAME_SIZE,
-    renderMaxSize: RENDER_SIZE,
+    frameWidth: frameSize,
+    frameHeight: frameSize,
+    renderMaxSize,
     frameSets: makeFrameSets(segments, generated),
-  }), [description, generated, projectName, segments]);
+  }), [description, frameSize, generated, projectName, renderMaxSize, segments]);
   const manifestJson = useMemo(() => JSON.stringify(manifest, null, 2), [manifest]);
   const projectId = sanitizeProjectId(projectName);
   const generatedCount = CLOAK_STATE_ORDER.reduce((total, state) => total + generated[state].length, 0);
@@ -175,7 +179,7 @@ export function App() {
     const segment = segments.find((item) => item.state === state);
     return total + (segment ? estimateCappedFrameCount(segment, MAX_FRAMES_PER_STATE) : 0);
   }, 0);
-  const estimatedSheetSize = `${manifest.cols * FRAME_SIZE}x${manifest.rows * FRAME_SIZE}`;
+  const estimatedSheetSize = `${manifest.cols * frameSize}x${manifest.rows * frameSize}`;
   const sourcePlayheadLeft = videoDuration > 0
     ? Math.max(0, Math.min(100, (sourceCurrentTime / videoDuration) * 100))
     : 0;
@@ -331,7 +335,7 @@ export function App() {
       try {
         const clampedTime = Math.max(0, Math.min(video.duration || time, time));
         const dataUrl = await captureVideoFrame(video, clampedTime, {
-          frameSize: FRAME_SIZE,
+          frameSize,
           removeBackground: false,
           cutout: {
             background,
@@ -490,6 +494,7 @@ export function App() {
   async function generatePreviewFrames(
     nextSegments: SegmentDraft[],
     completeMessage = '原片预览帧已生成，可调整片段',
+    outputFrameSize = frameSize,
   ) {
     const video = videoRef.current;
     if (!video || !video.currentSrc) return;
@@ -502,7 +507,7 @@ export function App() {
       for (const segment of nextSegments) {
         if (runId !== previewRunRef.current) return;
         next[segment.state] = await captureSegmentPreviewFrames(video, segment, {
-          frameSize: FRAME_SIZE,
+          frameSize: outputFrameSize,
           removeBackground: false,
           cutout: {
             background,
@@ -541,7 +546,7 @@ export function App() {
         const expected = estimateCappedFrameCount(segment, MAX_FRAMES_PER_STATE);
         setExtractProgress(`正在处理：${STATE_LABELS[segment.state]}（预计 ${expected} 帧）`);
         next[segment.state] = await extractSegmentFrames(video, segment, {
-          frameSize: FRAME_SIZE,
+          frameSize,
           removeBackground,
           cutout: {
             background,
@@ -587,9 +592,9 @@ export function App() {
         projectId,
         name: projectName,
         description,
-        frameWidth: FRAME_SIZE,
-        frameHeight: FRAME_SIZE,
-        renderMaxSize: RENDER_SIZE,
+        frameWidth: frameSize,
+        frameHeight: frameSize,
+        renderMaxSize,
         frameSets,
       });
       downloadBlob(zip, `${projectId}-cloak-pet.zip`);
@@ -627,6 +632,26 @@ export function App() {
   function updateEdgeCleanup(value: number) {
     setEdgeCleanup(value);
     if (removeBackground) clearAllGenerated('边缘清理已变化，需重新生成帧');
+  }
+
+  function updateFrameSize(value: number) {
+    previewRunRef.current += 1;
+    sourcePreviewRunRef.current += 1;
+    setFrameSize(value);
+    setGenerated(createEmptyFrameRecord());
+    setPreviewFrames(createEmptyFrameRecord());
+    setSourcePreview(null);
+    setPreviewFrameIndex(0);
+    if (videoUrl) {
+      void generatePreviewFrames(segments, `输出帧尺寸已改为 ${value}x${value}，预览已更新，需重新生成正式帧`, value);
+    } else {
+      setLastExportMessage(`输出帧尺寸已改为 ${value}x${value}，需重新生成`);
+    }
+  }
+
+  function updateRenderMaxSize(value: number) {
+    setRenderMaxSize(value);
+    setLastExportMessage(`Cloak 显示尺寸已改为 ${value}px`);
   }
 
   const activePreview = sourcePreview?.frame ?? selectedFrame;
@@ -717,7 +742,7 @@ export function App() {
                   <strong>{segment.label}</strong>
                   <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
                   <span>{generated[segment.state].length || 0} 已生成 · 预计 {estimateCappedFrameCount(segment, MAX_FRAMES_PER_STATE)} 帧</span>
-                  <span>{previewFrames[segment.state].length ? `${previewFrames[segment.state].length} 张原片预览` : `${FRAME_SIZE}x${FRAME_SIZE}`}</span>
+                  <span>{previewFrames[segment.state].length ? `${previewFrames[segment.state].length} 张原片预览` : `${frameSize}x${frameSize}`}</span>
                 </span>
                 <label className="state-select" onClick={(event) => event.stopPropagation()}>
                   <span>导出为</span>
@@ -976,8 +1001,18 @@ export function App() {
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
             </label>
             <div className="field-grid">
-              <label><span>帧宽</span><input readOnly value={FRAME_SIZE} /></label>
-              <label><span>帧高</span><input readOnly value={FRAME_SIZE} /></label>
+              <label>
+                <span>输出帧</span>
+                <select value={frameSize} onChange={(event) => updateFrameSize(Number(event.target.value))}>
+                  {FRAME_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size} x {size}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>显示尺寸</span>
+                <select value={renderMaxSize} onChange={(event) => updateRenderMaxSize(Number(event.target.value))}>
+                  {RENDER_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}px</option>)}
+                </select>
+              </label>
               <label><span>列数</span><input readOnly value={manifest.cols} /></label>
               <label><span>行数</span><input readOnly value={manifest.rows} /></label>
             </div>

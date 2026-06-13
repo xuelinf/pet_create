@@ -936,7 +936,8 @@ button {
 }
 
 .inspector-section input,
-.inspector-section textarea {
+.inspector-section textarea,
+.inspector-section select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 7px;

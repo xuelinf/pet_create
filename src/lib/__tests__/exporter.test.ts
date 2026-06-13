@@ -101,4 +101,26 @@ describe('Cloak 宠物导出契约', () => {
       interacting: [9, 10, 11],
     });
   });
+
+  it('支持按需要导出更高精度的帧尺寸和显示尺寸', () => {
+    const manifest = buildCloakManifest({
+      name: '高清宠物',
+      description: '需要保留细节的宠物。',
+      frameWidth: 384,
+      frameHeight: 384,
+      renderMaxSize: 192,
+      frameSets,
+    });
+
+    expect(manifest).toMatchObject({
+      frameWidth: 384,
+      frameHeight: 384,
+      render: {
+        maxSize: 192,
+        imageRendering: 'pixelated',
+      },
+    });
+    expect(manifest.cols * manifest.frameWidth).toBe(1152);
+    expect(manifest.rows * manifest.frameHeight).toBe(1536);
+  });
 });
